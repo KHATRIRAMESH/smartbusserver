@@ -1,0 +1,51 @@
+{
+  "name": "smartbus-server",
+  "version": "1.0.0",
+  "description": "SmartBus API Server - Independent backend service",
+  "main": "app.js",
+  "type": "module",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "nodemon app.js",
+    "build": "echo 'No build step needed for Node.js server'",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
+    "lint": "eslint . --ext .js",
+    "lint:fix": "eslint . --ext .js --fix",
+    "deploy:prod": "npm run build && npm start",
+    "deploy:docker": "docker build -t smartbus-server . && docker run -p 3001:3001 smartbus-server"
+  },
+  "keywords": ["smartbus", "api", "backend", "school-bus", "tracking"],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.1",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "drizzle-orm": "^0.44.2",
+    "express": "^4.21.0",
+    "express-async-errors": "^3.1.1",
+    "geolib": "^3.3.4",
+    "http-status-codes": "^2.3.0",
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^7.0.3",
+    "otp-generator": "^4.0.1",
+    "postgres": "^3.4.4",
+    "socket.io": "^4.8.0",
+    "cookie-parser": "^1.4.6"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.31.2",
+    "eslint": "^9.30.0",
+    "nodemon": "^3.1.7",
+    "tsx": "^4.20.3"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+}
