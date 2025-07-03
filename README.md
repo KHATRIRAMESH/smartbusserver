@@ -38,6 +38,9 @@ ACCESS_TOKEN_EXPIRY=4d
 REFRESH_TOKEN_SECRET=your_refresh_token_secret_here
 REFRESH_TOKEN_EXPIRY=30d
 
+# Security
+SUPER_ADMIN_SECRET_KEY=your_super_admin_secret_key_here
+
 # Server Configuration
 PORT=3001
 NODE_ENV=production
@@ -144,6 +147,7 @@ npm run db:studio
 - Input validation
 - Rate limiting (recommended)
 - HTTPS only in production
+- **Super Admin Secret Key**: Required for super admin registration to ensure only authorized personnel can access the system
 
 ## 📊 Monitoring
 
@@ -162,6 +166,10 @@ npm run db:studio
 ## 📄 License
 
 MIT License
+
+### Security Setup
+
+For detailed security configuration, see [SECURITY_SETUP.md](./SECURITY_SETUP.md)
 
 
 

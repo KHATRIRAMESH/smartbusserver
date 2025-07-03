@@ -3,16 +3,37 @@ import jwt from "jsonwebtoken";
 import { eq } from "drizzle-orm";
 import db from "../config/connect.js";
 import { superAdminTable } from "../database/SuperAdmin.js";
+import { schoolAdminTable } from "../database/SchoolAdmin.js";
 import { StatusCodes } from "http-status-codes";
 import { schoolTable } from "../database/School.js";
 
 export const createSuperAdmin = async (req, res) => {
-  const { name, email, password } = req.body;
-  if (!name || !email || !password) {
-    return res.status(400).json({ message: "All fields are required" });
+  const { name, email, password, secretKey } = req.body;
+  if (!name || !email || !password || !secretKey) {
+    return res.status(400).json({ 
+      success: false,
+      message: "All fields are required including secret key" 
+    });
   }
 
   try {
+    // Verify secret key
+    const expectedSecretKey = process.env.SUPER_ADMIN_SECRET_KEY;
+    if (!expectedSecretKey) {
+      console.error("SUPER_ADMIN_SECRET_KEY environment variable is not set");
+      return res.status(500).json({ 
+        success: false,
+        message: "Server configuration error" 
+      });
+    }
+
+    if (secretKey !== expectedSecretKey) {
+      return res.status(403).json({ 
+        success: false,
+        message: "Invalid secret key. Access denied." 
+      });
+    }
+
     // Check if super admin already exists
     const existingSuperAdmin = await db
       .select()
@@ -23,7 +44,10 @@ export const createSuperAdmin = async (req, res) => {
     if (existingSuperAdmin.length > 0) {
       return res
         .status(400)
-        .json({ message: "Super admin already exists with this email" });
+        .json({ 
+          success: false,
+          message: "Super admin already exists with this email" 
+        });
     }
 
     // Hash password
@@ -62,6 +86,7 @@ export const createSuperAdmin = async (req, res) => {
     });
 
     res.status(StatusCodes.CREATED).json({
+      success: true,
       access_token,
       refresh_token,
       message: "Super admin registered and logged in successfully",
@@ -74,7 +99,10 @@ export const createSuperAdmin = async (req, res) => {
     });
   } catch (error) {
     console.error("Error creating super admin:", error);
-    res.status(500).json({ message: "Internal server error" });
+    res.status(500).json({ 
+      success: false,
+      message: "Internal server error" 
+    });
   }
 };
 
@@ -273,14 +301,48 @@ export const deleteSchool = async (req, res) => {
   }
 };
 
+export const getSystemStats = async (req, res) => {
+  try {
+    // Get schools count
+    const schoolsResult = await db.select().from(schoolTable);
+    const totalSchools = schoolsResult.length;
+
+    // Get school admins count
+    const schoolAdminsResult = await db.select().from(schoolAdminTable);
+    const totalSchoolAdmins = schoolAdminsResult.length;
+
+    const stats = {
+      totalSchools,
+      totalSchoolAdmins,
+      totalBuses: 0, // Will be implemented when Bus schema is ready
+      totalRoutes: 0, // Will be implemented when Route schema is ready
+      totalChildren: 0, // Will be implemented when Child schema is ready
+      totalParents: 0, // Will be implemented when Parent schema is ready
+    };
+
+    res.status(200).json({
+      success: true,
+      data: stats,
+      message: "System stats retrieved successfully"
+    });
+  } catch (error) {
+    console.error("Error fetching system stats:", error);
+    res.status(500).json({ 
+      success: false,
+      message: "Internal server error" 
+    });
+  }
+};
+
+// School Admin Management (Super Admin functions)
 export const createSchoolAdmin = async (req, res) => {
   try {
-    const { name, email, password, schoolId } = req.body;
+    const { name, email, password, schoolId, phone, address } = req.body;
 
     if (!name || !email || !password || !schoolId) {
       return res.status(400).json({ 
         success: false,
-        message: "All fields are required" 
+        message: "Name, email, password, and school are required" 
       });
     }
 
@@ -298,17 +360,45 @@ export const createSchoolAdmin = async (req, res) => {
       });
     }
 
-    // For now, return a placeholder response since SchoolAdmin schema is not implemented
-    res.status(200).json({
-      success: true,
-      message: "School admin creation endpoint ready - schema migration pending",
-      data: {
-        id: "placeholder-id",
+    // Check if school admin already exists with this email
+    const existingSchoolAdmin = await db
+      .select()
+      .from(schoolAdminTable)
+      .where(eq(schoolAdminTable.email, email))
+      .limit(1);
+
+    if (existingSchoolAdmin.length > 0) {
+      return res.status(409).json({ 
+        success: false,
+        message: "School admin already exists with this email" 
+      });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    // Create school admin
+    const [newSchoolAdmin] = await db
+      .insert(schoolAdminTable)
+      .values({
         name,
         email,
+        password: hashedPassword,
         schoolId,
-        school: school[0],
-        createdAt: new Date().toISOString()
+        phone,
+        address,
+      })
+      .returning();
+
+    // Remove password from response
+    const { password: _, ...schoolAdminWithoutPassword } = newSchoolAdmin;
+
+    res.status(StatusCodes.CREATED).json({
+      success: true,
+      message: "School admin created successfully",
+      data: {
+        ...schoolAdminWithoutPassword,
+        school: school[0]
       }
     });
   } catch (error) {
@@ -320,29 +410,156 @@ export const createSchoolAdmin = async (req, res) => {
   }
 };
 
-export const getSystemStats = async (req, res) => {
+export const getAllSchoolAdmins = async (req, res) => {
   try {
-    // Get schools count
-    const schoolsResult = await db.select().from(schoolTable);
-    const totalSchools = schoolsResult.length;
-
-    // For now, return placeholder stats since other schemas are not implemented
-    const stats = {
-      totalSchools,
-      totalSchoolAdmins: 0, // Will be implemented when SchoolAdmin schema is ready
-      totalBuses: 0, // Will be implemented when Bus schema is ready
-      totalRoutes: 0, // Will be implemented when Route schema is ready
-      totalChildren: 0, // Will be implemented when Child schema is ready
-      totalParents: 0, // Will be implemented when Parent schema is ready
-    };
+    const schoolAdmins = await db
+      .select({
+        id: schoolAdminTable.id,
+        name: schoolAdminTable.name,
+        email: schoolAdminTable.email,
+        schoolId: schoolAdminTable.schoolId,
+        phone: schoolAdminTable.phone,
+        address: schoolAdminTable.address,
+        createdAt: schoolAdminTable.createdAt,
+        updatedAt: schoolAdminTable.updatedAt,
+        school: {
+          id: schoolTable.id,
+          name: schoolTable.name,
+          address: schoolTable.address,
+          contact: schoolTable.contact,
+        }
+      })
+      .from(schoolAdminTable)
+      .leftJoin(schoolTable, eq(schoolAdminTable.schoolId, schoolTable.id));
 
     res.status(200).json({
       success: true,
-      data: stats,
-      message: "System stats retrieved successfully"
+      data: schoolAdmins,
+      message: "School admins retrieved successfully"
     });
   } catch (error) {
-    console.error("Error fetching system stats:", error);
+    console.error("Error fetching school admins:", error);
+    res.status(500).json({ 
+      success: false,
+      message: "Internal server error" 
+    });
+  }
+};
+
+export const updateSchoolAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, email, phone, address, schoolId } = req.body;
+
+    // Check if school admin exists
+    const existingSchoolAdmin = await db
+      .select()
+      .from(schoolAdminTable)
+      .where(eq(schoolAdminTable.id, id))
+      .limit(1);
+
+    if (existingSchoolAdmin.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        message: "School admin not found" 
+      });
+    }
+
+    // If email is being updated, check for duplicates
+    if (email && email !== existingSchoolAdmin[0].email) {
+      const duplicateEmail = await db
+        .select()
+        .from(schoolAdminTable)
+        .where(eq(schoolAdminTable.email, email))
+        .limit(1);
+
+      if (duplicateEmail.length > 0) {
+        return res.status(409).json({ 
+          success: false,
+          message: "Email already exists" 
+        });
+      }
+    }
+
+    // If schoolId is being updated, check if school exists
+    if (schoolId && schoolId !== existingSchoolAdmin[0].schoolId) {
+      const school = await db
+        .select()
+        .from(schoolTable)
+        .where(eq(schoolTable.id, schoolId))
+        .limit(1);
+
+      if (school.length === 0) {
+        return res.status(404).json({ 
+          success: false,
+          message: "School not found" 
+        });
+      }
+    }
+
+    // Update school admin
+    const [updatedSchoolAdmin] = await db
+      .update(schoolAdminTable)
+      .set({ 
+        name, 
+        email, 
+        phone, 
+        address, 
+        schoolId,
+        updatedAt: new Date()
+      })
+      .where(eq(schoolAdminTable.id, id))
+      .returning();
+
+    // Get school information
+    const school = await db
+      .select()
+      .from(schoolTable)
+      .where(eq(schoolTable.id, updatedSchoolAdmin.schoolId))
+      .limit(1);
+
+    // Remove password from response
+    const { password: _, ...schoolAdminWithoutPassword } = updatedSchoolAdmin;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        ...schoolAdminWithoutPassword,
+        school: school[0] || null
+      },
+      message: "School admin updated successfully"
+    });
+  } catch (error) {
+    console.error("Error updating school admin:", error);
+    res.status(500).json({ 
+      success: false,
+      message: "Internal server error" 
+    });
+  }
+};
+
+export const deleteSchoolAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const deletedSchoolAdmin = await db
+      .delete(schoolAdminTable)
+      .where(eq(schoolAdminTable.id, id))
+      .returning();
+
+    if (deletedSchoolAdmin.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        message: "School admin not found" 
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "School admin deleted successfully"
+    });
+  } catch (error) {
+    console.error("Error deleting school admin:", error);
     res.status(500).json({ 
       success: false,
       message: "Internal server error" 

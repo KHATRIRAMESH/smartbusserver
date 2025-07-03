@@ -9,8 +9,15 @@ import cookieParser from "cookie-parser";
 import db from "./config/connect.js";
 import notFoundMiddleware from "./middleware/not-found.js";
 import errorHandlerMiddleware from "./middleware/error-handler.js";
-import authMiddleware from "./middleware/authentication.js";
+import { requestLogger } from "./middleware/auth.js";
 import superAdminRouter from "./routes/superAdmin.route.js";
+import schoolAdminRouter from "./routes/schoolAdmin.route.js";
+import busRouter from "./routes/bus.route.js";
+import driverRouter from "./routes/driver.route.js";
+import routeRouter from "./routes/route.route.js";
+import parentRouter from "./routes/parent.route.js";
+import childRouter from "./routes/child.route.js";
+import trackingRouter from "./routes/tracking.route.js";
 
 // Routers
 import authRouter from "./routes/auth.route.js";
@@ -27,6 +34,9 @@ const app = express();
 app.use(express.json());
 app.use(cookieParser());
 
+// Add request logging middleware
+app.use(requestLogger);
+
 // CORS configuration for independent deployment
 const allowedOrigins = process.env.ALLOWED_ORIGINS 
   ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
@@ -37,6 +47,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
       "exp://localhost:8081", // Expo development
       "http://192.168.18.16:3000", // Mobile app (Android)
       "http://192.168.18.16:3001", // Mobile app alternative
+      "http://192.168.18.16:8000", // Mobile app (Android) - old port
       "exp://192.168.18.16:8081", // Expo development
     ];
 
@@ -96,7 +107,8 @@ app.get("/", (req, res) => {
     endpoints: {
       health: "/health",
       auth: "/auth",
-      superAdmin: "/super-admin"
+      superAdmin: "/super-admin",
+      schoolAdmin: "/school-admin"
     }
   });
 });
@@ -105,6 +117,13 @@ app.get("/", (req, res) => {
 app.use("/auth", authRouter);
 // app.use("/ride", authMiddleware, rideRouter);
 app.use("/super-admin", superAdminRouter);
+app.use("/school-admin", schoolAdminRouter);
+app.use("/bus", busRouter);
+app.use("/driver", driverRouter);
+app.use("/route", routeRouter);
+app.use("/parent", parentRouter);
+app.use("/child", childRouter);
+app.use("/tracking", trackingRouter);
 
 // Middleware
 app.use(notFoundMiddleware);

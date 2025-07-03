@@ -9,6 +9,7 @@
     "dev": "nodemon app.js",
     "build": "echo 'No build step needed for Node.js server'",
     "test": "echo \"Error: no test specified\" && exit 1",
+    "test:secret-key": "node test-secret-key.js",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
@@ -18,12 +19,20 @@
     "deploy:prod": "npm run build && npm start",
     "deploy:docker": "docker build -t smartbus-server . && docker run -p 3001:3001 smartbus-server"
   },
-  "keywords": ["smartbus", "api", "backend", "school-bus", "tracking"],
+  "keywords": [
+    "smartbus",
+    "api",
+    "backend",
+    "school-bus",
+    "tracking"
+  ],
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
     "@neondatabase/serverless": "^1.0.1",
+    "axios": "^1.10.0",
     "bcryptjs": "^3.0.2",
+    "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "drizzle-orm": "^0.44.2",
@@ -35,11 +44,10 @@
     "nodemailer": "^7.0.3",
     "otp-generator": "^4.0.1",
     "postgres": "^3.4.4",
-    "socket.io": "^4.8.0",
-    "cookie-parser": "^1.4.6"
+    "socket.io": "^4.8.0"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.31.2",
+    "drizzle-kit": "^0.31.4",
     "eslint": "^9.30.0",
     "nodemon": "^3.1.7",
     "tsx": "^4.20.3"

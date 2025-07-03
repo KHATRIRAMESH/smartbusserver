@@ -2,7 +2,8 @@ import geolib from "geolib";
 import jwt from "jsonwebtoken";
 import { eq } from "drizzle-orm";
 import db from "../config/connect.js";
-import { userTable } from "../database/User.js";
+import { driverTable } from "../database/Driver.js";
+import { parentTable } from "../database/Parent.js";
 
 const activeDrivers = new Map(); // { driverId: { socketId, coords } }
 
@@ -14,14 +15,24 @@ const handleSocketConnection = (io) => {
       if (!token) return next(new Error("No token provided"));
 
       const payload = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-      const user = await db
-        .select()
-        .from(userTable)
-        .where(eq(userTable.id, payload.id))
-        .limit(1);
-      if (user.length === 0) return next(new Error("User not found"));
-
-      socket.user = { id: user[0].id, role: user[0].role };
+      let user;
+      if (payload.role === "driver") {
+        user = await db
+          .select()
+          .from(driverTable)
+          .where(eq(driverTable.id, payload.id))
+          .limit(1);
+      } else if (payload.role === "parent") {
+        user = await db
+          .select()
+          .from(parentTable)
+          .where(eq(parentTable.id, payload.id))
+          .limit(1);
+      } else {
+        return next(new Error("Invalid role in token"));
+      }
+      if (!user || user.length === 0) return next(new Error("User not found"));
+      socket.user = { id: user[0].id, role: payload.role };
       next();
     } catch (err) {
       console.error("Socket auth failed:", err.message);

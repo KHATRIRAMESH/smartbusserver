@@ -1,21 +1,22 @@
 // import Child from "./Child.js";
 // import Driver from "./Driver.js";
 // import Parent from "./Parent.js";
-import {schoolTable} from "./School.js";
-// import SchoolAdmin from "./SchoolAdmin.js";
-// import Bus from "./Bus.js";
-// import Route from "./Route.js";
-import { superAdminTable } from "./SuperAdmin.js";
-// import { userTable } from "./User.js";
+import { childTable } from "../drizzle/schema.js";
+import { driverTable } from "../drizzle/schema.js";
+import { parentTable } from "../drizzle/schema.js";
+import { schoolTable } from "../drizzle/schema.js";
+import { schoolAdminTable } from "../drizzle/schema.js";
+import { busTable } from "../drizzle/schema.js";
+import { routeTable } from "../drizzle/schema.js";
+import { superAdminTable } from "../drizzle/schema.js";
 
 export {
-  // userTable,
-    schoolTable,
-  //   SchoolAdmin,
-  //   Driver,
-  //   Parent,
-  //   Child,
-  //   Bus,
-  //   Route,
+  schoolTable,
+  schoolAdminTable,
+  driverTable,
+  parentTable,
+  childTable,
+  busTable,
+  routeTable,
   superAdminTable,
 };

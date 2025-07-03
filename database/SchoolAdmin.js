@@ -1,13 +1,3 @@
-import { pgTable } from "drizzle-orm/pg-core";
+import { schoolAdminTable } from "../drizzle/schema.js";
 
-
-export const schoolAdminTable = pgTable("school_admin", {
-  id: uuid("id").primaryKey().default(),
-  name: text("name").notNull(),
-  schoolId: uuid("school_id")
-    .references(() => schoolTable.id)
-    .notNull(),
-  email: text("email").notNull().unique(),
-  phone: text("phone").notNull(),
-  address: text("address").notNull(),
-});
+export { schoolAdminTable };
