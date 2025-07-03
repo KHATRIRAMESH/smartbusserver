@@ -7,6 +7,9 @@ import { parentTable } from "../database/Parent.js";
 import { routeTable } from "../database/Route.js";
 import { StatusCodes } from "http-status-codes";
 
+// Cache for storing real-time bus locations
+const busLocationsCache = new Map();
+
 // Get bus location and tracking information for a specific child
 export const getBusLocationForChild = async (req, res) => {
   try {
@@ -246,27 +249,26 @@ export const getAllBusLocations = async (req, res) => {
       .leftJoin(routeTable, eq(busTable.id, routeTable.busId))
       .where(eq(busTable.schoolAdminId, schoolAdminId));
 
-    // Add mock tracking data for each bus
-    const trackingData = buses.map((bus, index) => ({
-      ...bus,
-      currentLocation: {
-        latitude: 12.9716 + (index * 0.01), // Mock coordinates with slight variation
-        longitude: 77.5946 + (index * 0.01),
-        timestamp: new Date().toISOString(),
-        speed: 20 + (index * 5), // km/h
-        heading: 180 + (index * 30), // degrees
-        status: index % 3 === 0 ? "in_transit" : index % 3 === 1 ? "at_stop" : "completed",
-      },
-      estimatedArrival: {
-        pickup: "08:30 AM",
-        drop: "03:45 PM",
-      },
-      routeProgress: {
-        currentStop: `Stop ${index + 1}`,
-        nextStop: `Stop ${index + 2}`,
-        progress: 20 + (index * 20), // percentage
-      },
-    }));
+    // Add real-time tracking data for each bus
+    const trackingData = buses.map((bus) => {
+      const realtimeData = busLocationsCache.get(bus.id) || {
+        latitude: null,
+        longitude: null,
+        status: "offline",
+        timestamp: null,
+      };
+
+      return {
+        ...bus,
+        currentLocation: {
+          latitude: realtimeData.latitude,
+          longitude: realtimeData.longitude,
+          status: realtimeData.status,
+          timestamp: realtimeData.timestamp,
+          speed: realtimeData.speed || "0 km/h",
+        },
+      };
+    });
 
     res.status(200).json({
       success: true,
@@ -295,27 +297,57 @@ export const updateBusLocation = async (req, res) => {
       });
     }
 
-    // TODO: Store location in database or cache for real-time tracking
-    // For now, just acknowledge the update
-    
+    // Verify bus exists and driver is authorized
+    const bus = await db
+      .select({
+        id: busTable.id,
+        driverId: busTable.driverId,
+        busNumber: busTable.busNumber,
+        schoolAdminId: busTable.schoolAdminId,
+      })
+      .from(busTable)
+      .where(eq(busTable.id, busId))
+      .limit(1);
+
+    if (bus.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Bus not found",
+      });
+    }
+
+    if (bus[0].driverId !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized to update this bus location",
+      });
+    }
+
+    // Update cache with new location
+    const locationData = {
+      latitude,
+      longitude,
+      speed,
+      heading,
+      status,
+      timestamp: new Date().toISOString(),
+      busNumber: bus[0].busNumber,
+    };
+
+    busLocationsCache.set(busId, locationData);
+
     // Emit WebSocket event for real-time updates
     if (req.io) {
-      req.io.emit(`bus_location_update_${busId}`, {
+      req.io.to(`bus_${busId}`).emit("busLocationUpdate", {
         busId,
-        location: {
-          latitude,
-          longitude,
-          speed,
-          heading,
-          status,
-          timestamp: new Date().toISOString(),
-        },
+        ...locationData,
       });
     }
 
     res.status(200).json({
       success: true,
       message: "Bus location updated successfully",
+      data: locationData,
     });
   } catch (error) {
     console.error("Error updating bus location:", error);
@@ -378,7 +410,6 @@ export const getBusLocationForParentChildren = async (req, res) => {
   try {
     const parentId = req.user.id;
 
-    console.log(parentId);
     // Get all children for this parent with their bus details
     const childrenWithBus = await db
       .select({
@@ -424,35 +455,38 @@ export const getBusLocationForParentChildren = async (req, res) => {
       });
     }
 
-    // Group children by bus for easier tracking
+    // Group children by bus and add real-time tracking data
     const busGroups = {};
     childrenWithBus.forEach((item) => {
       if (item.bus && item.bus.id) {
         if (!busGroups[item.bus.id]) {
+          // Get real-time location from cache
+          const realtimeData = busLocationsCache.get(item.bus.id) || {
+            latitude: null,
+            longitude: null,
+            status: "offline",
+            timestamp: null,
+          };
+
           busGroups[item.bus.id] = {
             bus: item.bus,
             driver: item.driver,
             route: item.route,
             children: [],
+            currentLocation: {
+              latitude: realtimeData.latitude,
+              longitude: realtimeData.longitude,
+              status: realtimeData.status,
+              timestamp: realtimeData.timestamp,
+              speed: realtimeData.speed || "0 km/h",
+            },
           };
         }
         busGroups[item.bus.id].children.push(item.child);
       }
     });
 
-    // For now, return mock location data
-    // In production, you would get real-time location from driver's GPS
-    const trackingData = Object.values(busGroups).map((group) => ({
-      ...group,
-      currentLocation: {
-        latitude: 40.7128, // Mock coordinates (New York)
-        longitude: -74.0060,
-        timestamp: new Date().toISOString(),
-        status: "in_transit", // in_transit, at_school, at_pickup, at_drop
-        estimatedArrival: "10:30 AM",
-        speed: "25 km/h",
-      },
-    }));
+    const trackingData = Object.values(busGroups);
 
     res.status(200).json({
       success: true,
