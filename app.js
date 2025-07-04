@@ -38,10 +38,11 @@ app.use(cookieParser());
 app.use(requestLogger);
 
 // CORS configuration for independent deployment
-const allowedOrigins = process.env.ALLOWED_ORIGINS 
-  ? process.env.ALLOWED_ORIGINS.split(',').map(origin => origin.trim())
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",").map((origin) => origin.trim())
   : [
       "http://localhost:3000", // Admin panel
+      "https://smartbusserver-ug44.vercel.app", // Admin panel
       "http://localhost:3001", // Alternative admin port
       "http://localhost:8081", // Expo development
       "exp://localhost:8081", // Expo development
@@ -56,11 +57,11 @@ app.use(
     origin: function (origin, callback) {
       // Allow requests with no origin (like mobile apps or Postman)
       if (!origin) return callback(null, true);
-      
+
       if (allowedOrigins.indexOf(origin) !== -1) {
         callback(null, true);
       } else {
-        callback(new Error('Not allowed by CORS'));
+        callback(new Error("Not allowed by CORS"));
       }
     },
     credentials: true,
@@ -71,12 +72,12 @@ app.use(
 
 const server = http.createServer(app);
 
-const io = new socketIo(server, { 
-  cors: { 
+const io = new socketIo(server, {
+  cors: {
     origin: allowedOrigins,
     credentials: true,
-    methods: ["GET", "POST"]
-  } 
+    methods: ["GET", "POST"],
+  },
 });
 
 // Attach the WebSocket instance to the request object
@@ -90,26 +91,26 @@ handleSocketConnection(io);
 
 // Health check endpoint
 app.get("/health", (req, res) => {
-  res.status(200).json({ 
-    status: "ok", 
+  res.status(200).json({
+    status: "ok",
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || "development",
   });
 });
 
 //home route
 app.get("/", (req, res) => {
-  res.status(200).json({ 
+  res.status(200).json({
     message: "Welcome to SmartBus API Server",
     version: "1.0.0",
-    environment: process.env.NODE_ENV || 'development',
+    environment: process.env.NODE_ENV || "development",
     endpoints: {
       health: "/health",
       auth: "/auth",
       superAdmin: "/super-admin",
-      schoolAdmin: "/school-admin"
-    }
+      schoolAdmin: "/school-admin",
+    },
   });
 });
 
@@ -133,13 +134,13 @@ const start = async () => {
   try {
     // Database connection is already established in config/connect.js
     console.log("Database connected successfully");
-    
+
     const port = process.env.PORT || 3001;
     server.listen(port, "0.0.0.0", () => {
       console.log(`🚀 SmartBus API Server running on port ${port}`);
       console.log(`📊 Health check: http://localhost:${port}/health`);
-      console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`🔗 Allowed origins: ${allowedOrigins.join(', ')}`);
+      console.log(`🌐 Environment: ${process.env.NODE_ENV || "development"}`);
+      console.log(`🔗 Allowed origins: ${allowedOrigins.join(", ")}`);
     });
   } catch (error) {
     console.error("❌ Failed to start server:", error);
