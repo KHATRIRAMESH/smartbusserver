@@ -5,6 +5,10 @@ import { busTable } from "../database/Bus.js";
 import { routeTable } from "../database/Route.js";
 import { StatusCodes } from "http-status-codes";
 import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 // Create a new driver
 export const createDriver = async (req, res) => {
@@ -15,7 +19,8 @@ export const createDriver = async (req, res) => {
     if (!name || !email || !phone || !licenseNumber || !password) {
       return res.status(400).json({
         success: false,
-        message: "Name, email, phone, license number, and password are required",
+        message:
+          "Name, email, phone, license number, and password are required",
       });
     }
 
@@ -75,6 +80,175 @@ export const createDriver = async (req, res) => {
     });
   } catch (error) {
     console.error("Error creating driver:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+// Login driver
+export const loginDriver = async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    return res.status(400).json({
+      success: false,
+      message: "Email and password are required",
+    });
+  }
+  try {
+    // Find driver by email
+    const driver = await db
+      .select()
+      .from(driverTable)
+      .where(eq(driverTable.email, email))
+      .limit(1);
+
+    if (driver.length === 0) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials",
+      });
+    }
+
+    // Check if driver is active
+    if (!driver[0].isActive) {
+      return res.status(401).json({
+        success: false,
+        message: "Your account is inactive. Please contact your administrator.",
+      });
+    }
+
+    // Check password using bcrypt.compare
+    const isPasswordValid = await bcrypt.compare(password, driver[0].password);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials",
+      });
+    }
+
+    const payload = {
+      id: driver[0].id,
+      email: driver[0].email,
+      role: "driver",
+      schoolAdminId: driver[0].schoolAdminId,
+    };
+
+    // Generate JWT tokens
+    const access_token = jwt.sign(payload, process.env.ACCESS_TOKEN_SECRET, {
+      expiresIn: process.env.ACCESS_TOKEN_EXPIRY,
+    });
+    const refresh_token = jwt.sign(payload, process.env.REFRESH_TOKEN_SECRET, {
+      expiresIn: process.env.REFRESH_TOKEN_EXPIRY,
+    });
+
+    // Remove password from response
+    const { password: _, ...driverWithoutPassword } = driver[0];
+
+    res.status(200).json({
+      success: true,
+      access_token,
+      refresh_token,
+      message: "Driver logged in successfully",
+      user: driverWithoutPassword,
+    });
+  } catch (error) {
+    console.error("Driver login error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+// Get driver profile
+export const getDriverProfile = async (req, res) => {
+  try {
+    const driverId = req.user.id;
+    const driver = await db
+      .select({
+        id: driverTable.id,
+        name: driverTable.name,
+        email: driverTable.email,
+        phone: driverTable.phone,
+        licenseNumber: driverTable.licenseNumber,
+        address: driverTable.address,
+        isActive: driverTable.isActive,
+        createdAt: driverTable.createdAt,
+        updatedAt: driverTable.updatedAt,
+        assignedBus: {
+          id: busTable.id,
+          busNumber: busTable.busNumber,
+          plateNumber: busTable.plateNumber,
+          capacity: busTable.capacity,
+          model: busTable.model,
+        },
+      })
+      .from(driverTable)
+      .leftJoin(busTable, eq(driverTable.id, busTable.driverId))
+      .where(eq(driverTable.id, driverId))
+      .limit(1);
+
+    if (driver.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Driver not found",
+      });
+    }
+    res.status(200).json({
+      success: true,
+      data: driver[0],
+      message: "Driver profile retrieved successfully",
+    });
+  } catch (error) {
+    console.error("Error fetching driver profile:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};
+
+// Get driver's assigned bus
+export const getDriverBus = async (req, res) => {
+  try {
+    const driverId = req.user.id;
+    const bus = await db
+      .select({
+        id: busTable.id,
+        busNumber: busTable.busNumber,
+        plateNumber: busTable.plateNumber,
+        capacity: busTable.capacity,
+        model: busTable.model,
+        isActive: busTable.isActive,
+        route: {
+          id: routeTable.id,
+          name: routeTable.name,
+          startStop: routeTable.startStop,
+          endStop: routeTable.endStop,
+          stops: routeTable.stops,
+        },
+      })
+      .from(busTable)
+      .leftJoin(routeTable, eq(busTable.id, routeTable.busId))
+      .where(eq(busTable.driverId, driverId))
+      .limit(1);
+
+    if (bus.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No bus assigned to this driver",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: bus[0],
+      message: "Driver's assigned bus retrieved successfully",
+    });
+  } catch (error) {
+    console.error("Error fetching driver's bus:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -271,7 +445,7 @@ export const updateDriver = async (req, res) => {
 };
 
 // Delete a driver
-export const deleteDriver = async (req, res) => {
+export const deleteDriver = async (req, res, next) => {
   try {
     const schoolAdminId = req.user.id;
     const { id } = req.params;
@@ -291,25 +465,20 @@ export const deleteDriver = async (req, res) => {
     if (existingDriver.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Driver not found",
+        error: "Driver not found",
       });
     }
 
-    // Check if driver is assigned to any bus
-    const assignedBus = await db
-      .select()
-      .from(busTable)
-      .where(eq(busTable.driverId, id))
-      .limit(1);
+    // First, unassign the driver from any bus
+    await db
+      .update(busTable)
+      .set({
+        driverId: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(busTable.driverId, id));
 
-    if (assignedBus.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot delete driver assigned to a bus. Please reassign the bus first.",
-      });
-    }
-
-    // Delete the driver
+    // Now delete the driver
     await db
       .delete(driverTable)
       .where(
@@ -324,11 +493,7 @@ export const deleteDriver = async (req, res) => {
       message: "Driver deleted successfully",
     });
   } catch (error) {
-    console.error("Error deleting driver:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
+    next(error);
   }
 };
 
@@ -370,7 +535,8 @@ export const getDriverStats = async (req, res) => {
       totalDrivers: totalDrivers[0]?.count || 0,
       activeDrivers: activeDrivers[0]?.count || 0,
       assignedDrivers: assignedDrivers[0]?.count || 0,
-      unassignedDrivers: (totalDrivers[0]?.count || 0) - (assignedDrivers[0]?.count || 0),
+      unassignedDrivers:
+        (totalDrivers[0]?.count || 0) - (assignedDrivers[0]?.count || 0),
     };
 
     res.status(200).json({

@@ -8,8 +8,9 @@
     "start": "node app.js",
     "dev": "nodemon app.js",
     "build": "echo 'No build step needed for Node.js server'",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "test:secret-key": "node test-secret-key.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
@@ -50,7 +51,10 @@
     "drizzle-kit": "^0.31.4",
     "eslint": "^9.30.0",
     "nodemon": "^3.1.7",
-    "tsx": "^4.20.3"
+    "tsx": "^4.20.3",
+    "vitest": "^1.0.0",
+    "supertest": "^6.3.3",
+    "@vitest/coverage-v8": "^1.0.0"
   },
   "engines": {
     "node": ">=18.0.0",

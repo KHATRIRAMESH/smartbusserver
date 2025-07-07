@@ -25,6 +25,9 @@ export const superAdminTable = pgTable("super_admin", {
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   password: text("password").notNull(),
+  permissions: jsonb("permissions").default([]),
+  isActive: boolean("is_active").default(true),
+  lastLogin: timestamp("last_login"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -36,8 +39,11 @@ export const schoolAdminTable = pgTable("school_admin", {
   email: text("email").notNull().unique(),
   password: text("password").notNull(),
   schoolId: uuid("school_id").notNull().references(() => schoolTable.id),
-  phone: text("phone"),
+  contactNumber: text("contact_number"),
   address: text("address"),
+  isVerified: boolean("is_verified").default(false),
+  isActive: boolean("is_active").default(true),
+  lastLogin: timestamp("last_login"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

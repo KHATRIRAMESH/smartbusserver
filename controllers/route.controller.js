@@ -7,6 +7,7 @@ import { schoolTable } from "../database/School.js";
 import { schoolAdminTable } from "../database/SchoolAdmin.js";
 import { parentTable } from "../database/Parent.js";
 import { StatusCodes } from "http-status-codes";
+import { ForeignKeyError } from "../errors/custom-api.js";
 
 // Create a new route
 export const createRoute = async (req, res) => {
@@ -377,26 +378,14 @@ export const updateRoute = async (req, res) => {
 };
 
 // Delete a route
-export const deleteRoute = async (req, res) => {
+export const deleteRoute = async (req, res, next) => {
   try {
     const schoolAdminId = req.user.id;
     const { id } = req.params;
 
-    // Get school ID for this school admin
-    const schoolAdmin = await db
-      .select({ schoolId: schoolAdminTable.schoolId })
-      .from(schoolAdminTable)
-      .where(eq(schoolAdminTable.id, schoolAdminId))
-      .limit(1);
+    console.log(`Attempting to delete route ${id} for school admin ${schoolAdminId}`);
 
-    if (schoolAdmin.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "School admin not found",
-      });
-    }
-
-    // Check if route exists and belongs to this school
+    // Check if route exists and belongs to this school admin
     const existingRoute = await db
       .select()
       .from(routeTable)
@@ -406,44 +395,44 @@ export const deleteRoute = async (req, res) => {
       .limit(1);
 
     if (existingRoute.length === 0) {
+      console.log('Route not found');
       return res.status(404).json({
         success: false,
-        message: "Route not found",
+        error: "Route not found",
       });
     }
 
-    // Check if route has assigned children
-    const childrenCount = await db
-      .select({ count: sql`count(*)` })
-      .from(childTable)
-      .where(eq(childTable.routeId, id))
-      .limit(1);
+    console.log('Found route:', existingRoute[0]);
 
-    if (childrenCount[0].count > 0) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Cannot delete route with assigned children. Please reassign children first.",
-      });
-    }
-
-    // Delete the route
-    await db
+    // Now attempt to delete the route
+    console.log('Attempting to delete route');
+    const deletedRoute = await db
       .delete(routeTable)
       .where(
         and(eq(routeTable.id, id), eq(routeTable.schoolAdminId, schoolAdminId))
-      );
+      )
+      .returning();
+
+    console.log('Route deleted:', deletedRoute);
 
     res.status(200).json({
       success: true,
       message: "Route deleted successfully",
+      data: deletedRoute[0]
     });
   } catch (error) {
-    console.error("Error deleting route:", error);
-    res.status(500).json({
+    console.error('Error in deleteRoute:', error);
+    
+    // Check for specific PostgreSQL error codes
+    if (error.code === '23503') { // Foreign key violation
+      console.log('Foreign key violation detected');
+      return res.status(400).json({
       success: false,
-      message: "Internal server error",
+        error: "Cannot delete route because it is referenced by other records. Please contact support if this persists."
     });
+    }
+    
+    next(error);
   }
 };
 

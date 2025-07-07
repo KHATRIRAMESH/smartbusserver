@@ -1,4 +1,4 @@
-import geolib from "geolib";
+import { TrackingService } from "../services/tracking.service.js";
 import jwt from "jsonwebtoken";
 import { eq } from "drizzle-orm";
 import db from "../config/connect.js";
@@ -9,198 +9,198 @@ import { busTable } from "../database/Bus.js";
 // Store active buses and their locations
 const activeBuses = new Map(); // { busId: { socketId, coords, status, lastUpdate } }
 const busSubscriptions = new Map(); // { busId: Set<socketId> }
+const driverSockets = new Map(); // { driverId: { socketId, busId } }
 
 const handleSocketConnection = (io) => {
-  // Middleware for authentication
   io.use(async (socket, next) => {
     try {
-      const token = socket.handshake.headers.access_token;
-      if (!token) return next(new Error("No token provided"));
-
-      const payload = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
-      let user;
-      
-      if (payload.role === "driver") {
-        user = await db
-          .select()
-          .from(driverTable)
-          .where(eq(driverTable.id, payload.id))
-          .limit(1);
-          
-        // Get assigned bus for driver
-        if (user && user.length > 0) {
-          const bus = await db
-            .select()
-            .from(busTable)
-            .where(eq(busTable.driverId, user[0].id))
-            .limit(1);
-          if (bus && bus.length > 0) {
-            socket.busId = bus[0].id;
-          }
-        }
-      } else if (payload.role === "parent") {
-        user = await db
-          .select()
-          .from(parentTable)
-          .where(eq(parentTable.id, payload.id))
-          .limit(1);
-      } else {
-        return next(new Error("Invalid role in token"));
+      const token = socket.handshake.auth.token;
+      if (!token) {
+        return next(new Error("Authentication error"));
       }
 
-      if (!user || user.length === 0) return next(new Error("User not found"));
-      socket.user = { id: user[0].id, role: payload.role };
+      const payload = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+      socket.user = payload;
       next();
-    } catch (err) {
-      console.error("Socket auth failed:", err.message);
-      next(new Error("Authentication failed"));
+    } catch (error) {
+      next(new Error("Authentication error"));
     }
   });
 
   io.on("connection", (socket) => {
-    const { id, role } = socket.user;
-    console.log(`🔌 ${role} ${id} connected`);
+    console.log(`Socket connected: ${socket.id}`);
+    console.log(`User: ${socket.user.id}, Role: ${socket.user.role}`);
 
-    // DRIVER: Start bus service
-    socket.on("startBusService", (initialData) => {
-      if (role === "driver" && socket.busId) {
-        const busId = socket.busId;
-        activeBuses.set(busId, {
-          socketId: socket.id,
-          coords: initialData.coords,
-          status: initialData.status || "in_service",
-          lastUpdate: new Date(),
-          driverId: id
-        });
-        console.log(`🚌 Bus ${busId} started service`);
-      }
+    // Track driver connections
+    if (socket.user.role === "driver") {
+      driverSockets.set(socket.user.id, { socketId: socket.id, busId: null });
+      console.log(`Driver ${socket.user.id} connected with socket ${socket.id}`);
+    }
+
+    // Test ping-pong to verify socket communication
+    socket.on("ping", (data) => {
+      console.log(`Received ping from ${socket.id}:`, data);
+      socket.emit("pong", { message: "pong", timestamp: new Date(), originalData: data });
     });
 
-    // DRIVER: Update bus location
-    socket.on("updateBusLocation", (data) => {
-      if (role === "driver" && socket.busId) {
-        const busId = socket.busId;
-        const busData = activeBuses.get(busId);
-        
-        if (busData) {
-          // Update bus data
-          busData.coords = data.coords;
-          busData.status = data.status || busData.status;
-          busData.lastUpdate = new Date();
-          activeBuses.set(busId, busData);
+    socket.on("subscribeToBus", (data) => {
+      const { busId } = data;
+      console.log(`Parent ${socket.user.id} subscribing to bus ${busId}`);
+      console.log(`Socket ${socket.id} user role: ${socket.user.role}`);
+      TrackingService.subscribeToBus(busId, socket.id);
+      socket.join(busId);
+      console.log(`Socket ${socket.id} subscribed to bus ${busId}`);
+      console.log(`Total subscribers for bus ${busId}:`, TrackingService.getBusSubscribers(busId).size);
+    });
 
-          // Broadcast to subscribed clients
-          io.to(`bus_${busId}`).emit("busLocationUpdate", {
+    socket.on("unsubscribeFromBus", (data) => {
+      const busId = typeof data === 'string' ? data : data.busId;
+      console.log(`Socket ${socket.id} unsubscribing from bus ${busId}`);
+      TrackingService.unsubscribeFromBus(busId, socket.id);
+      socket.leave(busId);
+      console.log(`Socket ${socket.id} unsubscribed from bus ${busId}`);
+    });
+
+    socket.on("startBusService", (data) => {
+      const { busId, coords, status } = data;
+      console.log(`Bus service started for bus ${busId} with status: ${status}`);
+      
+      if (socket.user.role === "driver") {
+        // Update driver's bus assignment
+        const driverInfo = driverSockets.get(socket.user.id);
+        if (driverInfo) {
+          driverInfo.busId = busId;
+          driverSockets.set(socket.user.id, driverInfo);
+        }
+        
+        // Broadcast to subscribers that bus is now online
+        const subscribers = TrackingService.getBusSubscribers(busId);
+        if (subscribers.size > 0) {
+          const broadcastData = {
             busId,
-            coords: data.coords,
-            status: data.status,
-            lastUpdate: busData.lastUpdate
-          });
-
-          console.log(`📍 Bus ${busId} location updated:`, new Date().toLocaleTimeString());
+            coords,
+            status,
+            lastUpdated: new Date(),
+          };
+          console.log(`Broadcasting bus service start to ${subscribers.size} subscribers`);
+          io.to(Array.from(subscribers)).emit("busLocationUpdate", broadcastData);
         }
       }
     });
 
-    // DRIVER: Update bus status
-    socket.on("updateBusStatus", (data) => {
-      if (role === "driver" && socket.busId) {
-        const busId = socket.busId;
-        const busData = activeBuses.get(busId);
-        
-        if (busData) {
-          busData.status = data.status;
-          busData.lastUpdate = new Date();
-          activeBuses.set(busId, busData);
+    socket.on("updateBusStatus", async (data) => {
+      const { busId, status } = data;
+      console.log(`Received bus status update for bus ${busId}: ${status}`);
+      
+      if (socket.user.role !== "driver") {
+        console.log(`Unauthorized status update attempt by ${socket.user.role}`);
+        socket.emit("error", { message: "Not authorized to update bus status" });
+        return;
+      }
 
-          // Broadcast status change
-          io.to(`bus_${busId}`).emit("busStatusUpdate", {
+      try {
+        // Update status in database
+        await TrackingService.updateBusStatus(busId, status);
+        
+        // Broadcast status update to subscribers
+        const subscribers = TrackingService.getBusSubscribers(busId);
+        if (subscribers.size > 0) {
+          const broadcastData = {
             busId,
-            status: data.status,
-            lastUpdate: busData.lastUpdate
-          });
-
-          console.log(`🚦 Bus ${busId} status updated to ${data.status}`);
+            status,
+            lastUpdated: new Date(),
+          };
+          console.log(`Broadcasting status update to ${subscribers.size} subscribers for bus ${busId}`);
+          io.to(Array.from(subscribers)).emit("busStatusUpdate", broadcastData);
         }
+      } catch (error) {
+        console.error("Error updating bus status:", error);
+        socket.emit("error", { message: error.message });
       }
     });
 
-    // PARENT: Subscribe to bus updates
-    socket.on("subscribeToBus", (busId) => {
-      if (role === "parent") {
-        socket.join(`bus_${busId}`);
+    socket.on("updateBusLocation", async (data) => {
+      try {
+        const { busId, latitude, longitude, speed, heading, status } = data;
+        console.log(`Received location update for bus ${busId}:`, { latitude, longitude, status });
         
-        // Add to subscriptions
-        if (!busSubscriptions.has(busId)) {
-          busSubscriptions.set(busId, new Set());
+        // Verify driver is authorized for this bus
+        if (socket.user.role !== "driver") {
+          console.log(`Unauthorized location update attempt by ${socket.user.role}`);
+          socket.emit("error", { message: "Not authorized to update bus location" });
+          return;
         }
-        busSubscriptions.get(busId).add(socket.id);
 
-        // Send current bus data if available
-        const busData = activeBuses.get(busId);
-        if (busData) {
-          socket.emit("busLocationUpdate", {
+        const location = {
+          latitude: parseFloat(latitude),
+          longitude: parseFloat(longitude),
+          speed: speed ? parseFloat(speed) : null,
+          heading: heading ? parseFloat(heading) : null,
+        };
+
+        const result = await TrackingService.updateBusLocation(busId, location, status);
+        console.log(`Updated bus location result:`, result);
+        
+        // Notify subscribers
+        const subscribers = TrackingService.getBusSubscribers(busId);
+        console.log(`Broadcasting location to ${subscribers.size} subscribers for bus ${busId}`);
+        console.log(`Subscriber socket IDs:`, Array.from(subscribers));
+        
+        if (subscribers.size > 0) {
+          const broadcastData = {
             busId,
-            coords: busData.coords,
-            status: busData.status,
-            lastUpdate: busData.lastUpdate
-          });
+            ...result,
+          };
+          console.log(`Broadcasting data:`, broadcastData);
+          io.to(Array.from(subscribers)).emit("busLocationUpdate", broadcastData);
+          console.log(`Broadcast sent to subscribers`);
         }
-
-        console.log(`👨‍👩‍👧‍👦 Parent ${id} subscribed to bus ${busId}`);
+      } catch (error) {
+        console.error("Error updating bus location:", error);
+        socket.emit("error", { message: error.message });
       }
     });
 
-    // PARENT: Unsubscribe from bus updates
-    socket.on("unsubscribeToBus", (busId) => {
-      if (role === "parent") {
-        socket.leave(`bus_${busId}`);
-        
-        // Remove from subscriptions
-        const subs = busSubscriptions.get(busId);
-        if (subs) {
-          subs.delete(socket.id);
-          if (subs.size === 0) {
-            busSubscriptions.delete(busId);
-          }
-        }
-
-        console.log(`👋 Parent ${id} unsubscribed from bus ${busId}`);
-      }
-    });
-
-    // Handle disconnection
     socket.on("disconnect", () => {
-      if (role === "driver" && socket.busId) {
-        // Mark bus as inactive but keep last known position
-        const busData = activeBuses.get(socket.busId);
-        if (busData) {
-          busData.status = "offline";
-          busData.lastUpdate = new Date();
-          activeBuses.set(socket.busId, busData);
-
-          // Notify subscribers
-          io.to(`bus_${socket.busId}`).emit("busStatusUpdate", {
-            busId: socket.busId,
-            status: "offline",
-            lastUpdate: busData.lastUpdate
-          });
-        }
-      }
-
-      // Clean up parent subscriptions
-      if (role === "parent") {
-        for (const [busId, subs] of busSubscriptions.entries()) {
-          if (subs.has(socket.id)) {
-            subs.delete(socket.id);
-            if (subs.size === 0) {
-              busSubscriptions.delete(busId);
-            }
+      console.log(`Socket disconnected: ${socket.id}`);
+      
+      // Handle driver disconnection
+      if (socket.user.role === "driver") {
+        const driverInfo = driverSockets.get(socket.user.id);
+        if (driverInfo && driverInfo.busId) {
+          const busId = driverInfo.busId;
+          console.log(`Driver ${socket.user.id} disconnected, setting bus ${busId} to offline`);
+          
+          // Broadcast offline status to subscribers
+          const subscribers = TrackingService.getBusSubscribers(busId);
+          if (subscribers.size > 0) {
+            const broadcastData = {
+              busId,
+              status: 'offline',
+              lastUpdated: new Date(),
+            };
+            console.log(`Broadcasting offline status to ${subscribers.size} subscribers for bus ${busId}`);
+            io.to(Array.from(subscribers)).emit("busStatusUpdate", broadcastData);
+          }
+          
+          // Update status in database
+          try {
+            TrackingService.updateBusStatus(busId, 'offline');
+          } catch (error) {
+            console.error("Error updating bus status to offline:", error);
           }
         }
+        
+        // Remove driver from tracking
+        driverSockets.delete(socket.user.id);
       }
-
-      console.log(`❌ ${role} ${id} disconnected`);
+      
+      // Clean up subscriptions
+      for (const [busId, subscribers] of TrackingService.busSubscriptions.entries()) {
+        if (subscribers.has(socket.id)) {
+          TrackingService.unsubscribeFromBus(busId, socket.id);
+        }
+      }
     });
   });
 };

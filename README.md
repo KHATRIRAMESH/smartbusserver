@@ -1,175 +1,132 @@
-# SmartBus API Server
+# SmartBus Server
 
-Independent backend service for the SmartBus school bus management system.
+Backend service for the SmartBus application, providing real-time bus tracking, user management, and route optimization.
 
-## 🚀 Quick Start
+## Features
 
-### Prerequisites
-- Node.js 18+
-- PostgreSQL database
-- Environment variables configured
+- Real-time bus location tracking using Socket.IO
+- Multi-role authentication (Parent, Driver, School Admin, Super Admin)
+- Route management and optimization
+- Student tracking and attendance
+- Real-time notifications
+- Secure JWT-based authentication
+- PostgreSQL database with Drizzle ORM
 
-### Installation
-```bash
-npm install
+## Tech Stack
+
+- Node.js & Express.js
+- Socket.IO for real-time communication
+- PostgreSQL with Drizzle ORM
+- JWT for authentication
+- Geolib for location calculations
+- Nodemailer for email notifications
+
+## Project Structure
+
+```
+SmartBusServer/
+├── config/             # Configuration files
+├── controllers/        # Route controllers
+├── database/          # Database models and schema
+├── drizzle/           # Database migrations
+├── errors/            # Custom error classes
+├── middleware/        # Express middleware
+├── routes/            # API routes
+├── services/          # Business logic
+├── tests/             # Test files
+└── utils/             # Utility functions
 ```
 
-### Development
-```bash
-npm run dev
-```
+## Getting Started
 
-### Production
-```bash
-npm run deploy:prod
-```
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Copy `.env.example` to `.env` and update the values:
+   ```bash
+   cp env.example .env
+   ```
+4. Run database migrations:
+   ```bash
+   npm run db:migrate
+   ```
+5. Start the development server:
+   ```bash
+   npm run dev
+   ```
 
-## 📋 Environment Variables
-
-Create a `.env` file in the root directory:
+## Environment Variables
 
 ```env
-# Database Configuration
-DATABASE_URL=postgresql://username:password@localhost:5432/smartbus_db
-
-# JWT Configuration
-ACCESS_TOKEN_SECRET=your_access_token_secret_here
-ACCESS_TOKEN_EXPIRY=4d
-REFRESH_TOKEN_SECRET=your_refresh_token_secret_here
-REFRESH_TOKEN_EXPIRY=30d
-
-# Security
-SUPER_ADMIN_SECRET_KEY=your_super_admin_secret_key_here
-
-# Server Configuration
+# Server
 PORT=3001
-NODE_ENV=production
+NODE_ENV=development
 
-# Email Configuration
-SMTP_HOST=smtp.gmail.com
+# Database
+DATABASE_URL=postgres://user:pass@localhost:5432/smartbus
+
+# JWT
+ACCESS_TOKEN_SECRET=your_access_token_secret
+REFRESH_TOKEN_SECRET=your_refresh_token_secret
+ACCESS_TOKEN_EXPIRY=15m
+REFRESH_TOKEN_EXPIRY=7d
+
+# Email
+SMTP_HOST=smtp.example.com
 SMTP_PORT=587
-SMTP_USER=your_email@gmail.com
-SMTP_PASS=your_app_password
-
-# CORS Origins (comma-separated)
-ALLOWED_ORIGINS=https://your-admin-domain.com,https://your-mobile-app.com
+SMTP_USER=your_email
+SMTP_PASS=your_password
 ```
 
-## 🗄️ Database Setup
-
-### Generate Migrations
-```bash
-npm run db:generate
-```
-
-### Run Migrations
-```bash
-npm run db:migrate
-```
-
-### Push Schema Changes
-```bash
-npm run db:push
-```
-
-## 🐳 Docker Deployment
-
-### Build Image
-```bash
-docker build -t smartbus-server .
-```
-
-### Run Container
-```bash
-docker run -p 3001:3001 --env-file .env smartbus-server
-```
-
-### Docker Compose
-```bash
-docker-compose up -d
-```
-
-## 🌐 API Endpoints
+## API Documentation
 
 ### Authentication
-- `POST /super-admin/register` - Register super admin
-- `POST /super-admin/login` - Super admin login
-- `POST /auth/login` - User login
-- `POST /auth/register` - User registration
 
-### Super Admin
-- `GET /super-admin/schools` - Get all schools
-- `POST /super-admin/create-school` - Create school
-- `GET /super-admin/stats` - Get system stats
-- `POST /super-admin/create-school-admin` - Create school admin
+- `POST /auth/login` - Login for all user types
+- `POST /auth/refresh` - Refresh access token
+- `POST /auth/change-password` - Change user password
+
+### Bus Tracking
+
+- `GET /tracking/bus/:busId` - Get real-time bus location
+- `GET /tracking/child/:childId` - Get bus location for a child
+- `GET /tracking/parent` - Get all bus locations for parent's children
+- `POST /tracking/bus/:busId/location` - Update bus location (Driver only)
 
 ### WebSocket Events
-- `driver_location_update` - Real-time driver location
-- `ride_request` - New ride requests
-- `ride_status_update` - Ride status changes
 
-## 🔧 Development
+- `subscribeToBus` - Subscribe to real-time bus updates
+- `unsubscribeFromBus` - Unsubscribe from bus updates
+- `updateBusLocation` - Update bus location (Driver only)
+- `busLocationUpdate` - Receive bus location updates
 
-### Code Quality
+## Testing
+
+Run the test suite:
+
 ```bash
-npm run lint
-npm run lint:fix
+npm test
 ```
 
-### Database Studio
+Run tests with coverage:
+
 ```bash
-npm run db:studio
+npm run test:coverage
 ```
 
-## 📦 Deployment
-
-### Railway/Render/Vercel
-1. Connect your repository
-2. Set environment variables
-3. Deploy automatically
-
-### AWS/GCP/Azure
-1. Build Docker image
-2. Push to container registry
-3. Deploy to container service
-
-### Manual Server
-1. Clone repository
-2. Install dependencies: `npm install`
-3. Set environment variables
-4. Run migrations: `npm run db:migrate`
-5. Start server: `npm start`
-
-## 🔒 Security
-
-- JWT authentication
-- CORS protection
-- Input validation
-- Rate limiting (recommended)
-- HTTPS only in production
-- **Super Admin Secret Key**: Required for super admin registration to ensure only authorized personnel can access the system
-
-## 📊 Monitoring
-
-- Health check endpoint: `GET /health`
-- Logging with structured format
-- Error tracking (recommended: Sentry)
-
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
-2. Create feature branch
-3. Make changes
-4. Run tests and linting
-5. Submit pull request
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
-## 📄 License
+## License
 
-MIT License
-
-### Security Setup
-
-For detailed security configuration, see [SECURITY_SETUP.md](./SECURITY_SETUP.md)
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 
 

@@ -15,6 +15,7 @@ const router = express.Router();
 router.get("/child/:childId", getBusLocationForChild);
 router.get("/parent/:parentId", getBusLocationForParent);
 router.put("/bus/:busId/location", updateBusLocation);
+router.post("/bus/:busId/location", updateBusLocation);
 
 // Protected routes (for school admin)
 router.get("/admin/all", verifySchoolAdmin, getAllBusLocations);

@@ -337,7 +337,7 @@ export const getSystemStats = async (req, res) => {
 // School Admin Management (Super Admin functions)
 export const createSchoolAdmin = async (req, res) => {
   try {
-    const { name, email, password, schoolId, phone, address } = req.body;
+    const { name, email, password, schoolId, contactNumber, address } = req.body;
 
     if (!name || !email || !password || !schoolId) {
       return res.status(400).json({ 
@@ -385,21 +385,28 @@ export const createSchoolAdmin = async (req, res) => {
         email,
         password: hashedPassword,
         schoolId,
-        phone,
+        contactNumber,
         address,
       })
       .returning();
 
+    // Get school information
+    const schoolInfo = await db
+      .select()
+      .from(schoolTable)
+      .where(eq(schoolTable.id, schoolId))
+      .limit(1);
+
     // Remove password from response
     const { password: _, ...schoolAdminWithoutPassword } = newSchoolAdmin;
 
-    res.status(StatusCodes.CREATED).json({
+    res.status(201).json({
       success: true,
-      message: "School admin created successfully",
       data: {
         ...schoolAdminWithoutPassword,
-        school: school[0]
-      }
+        school: schoolInfo[0] || null
+      },
+      message: "School admin created successfully"
     });
   } catch (error) {
     console.error("Error creating school admin:", error);
@@ -418,7 +425,7 @@ export const getAllSchoolAdmins = async (req, res) => {
         name: schoolAdminTable.name,
         email: schoolAdminTable.email,
         schoolId: schoolAdminTable.schoolId,
-        phone: schoolAdminTable.phone,
+        contactNumber: schoolAdminTable.contactNumber,
         address: schoolAdminTable.address,
         createdAt: schoolAdminTable.createdAt,
         updatedAt: schoolAdminTable.updatedAt,
@@ -446,10 +453,65 @@ export const getAllSchoolAdmins = async (req, res) => {
   }
 };
 
+export const verifySchoolAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check if school admin exists
+    const existingSchoolAdmin = await db
+      .select()
+      .from(schoolAdminTable)
+      .where(eq(schoolAdminTable.id, id))
+      .limit(1);
+
+    if (existingSchoolAdmin.length === 0) {
+      return res.status(404).json({ 
+        success: false,
+        message: "School admin not found" 
+      });
+    }
+
+    // Update school admin verification status
+    const [updatedSchoolAdmin] = await db
+      .update(schoolAdminTable)
+      .set({ 
+        isVerified: true,
+        updatedAt: new Date()
+      })
+      .where(eq(schoolAdminTable.id, id))
+      .returning();
+
+    // Get school information
+    const school = await db
+      .select()
+      .from(schoolTable)
+      .where(eq(schoolTable.id, updatedSchoolAdmin.schoolId))
+      .limit(1);
+
+    // Remove password from response
+    const { password: _, ...schoolAdminWithoutPassword } = updatedSchoolAdmin;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        ...schoolAdminWithoutPassword,
+        school: school[0] || null
+      },
+      message: "School admin verified successfully"
+    });
+  } catch (error) {
+    console.error("Error verifying school admin:", error);
+    res.status(500).json({ 
+      success: false,
+      message: "Internal server error" 
+    });
+  }
+};
+
 export const updateSchoolAdmin = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, email, phone, address, schoolId } = req.body;
+    const { name, email, contactNumber, address, schoolId, isVerified } = req.body;
 
     // Check if school admin exists
     const existingSchoolAdmin = await db
@@ -503,9 +565,10 @@ export const updateSchoolAdmin = async (req, res) => {
       .set({ 
         name, 
         email, 
-        phone, 
-        address, 
-        schoolId,
+        contactNumber: contactNumber || existingSchoolAdmin[0].contactNumber,
+        address: address || existingSchoolAdmin[0].address,
+        schoolId: schoolId || existingSchoolAdmin[0].schoolId,
+        isVerified: isVerified !== undefined ? isVerified : existingSchoolAdmin[0].isVerified,
         updatedAt: new Date()
       })
       .where(eq(schoolAdminTable.id, id))

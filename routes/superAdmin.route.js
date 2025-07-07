@@ -14,6 +14,7 @@ import {
   getSystemStats,
   updateSchool,
   deleteSuperAdmin,
+  verifySchoolAdmin,
 } from "../controllers/superAdmin.controller.js";
 
 const router = express.Router();
@@ -37,6 +38,7 @@ router.post("/create-school-admin", verifySuperAdmin, createSchoolAdmin);
 router.get("/school-admins", verifySuperAdmin, getAllSchoolAdmins);
 router.put("/school-admins/:id", verifySuperAdmin, updateSchoolAdmin);
 router.delete("/school-admins/:id", verifySuperAdmin, deleteSchoolAdmin);
+router.post("/school-admins/:id/verify", verifySuperAdmin, verifySchoolAdmin);
 
 router.get("/stats", verifySuperAdmin, getSystemStats);
 

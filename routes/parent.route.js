@@ -8,7 +8,8 @@ import {
   getParentStats,
   loginParent,
   getParentChildren,
-  getParentProfile
+  getParentProfile,
+  changePassword
 } from "../controllers/parent.controller.js";
 import { verifySchoolAdmin, verifyParent } from "../middleware/auth.js";
 
@@ -20,6 +21,7 @@ router.post("/login", loginParent);
 // Parent-specific routes (require parent authentication)
 router.get("/children", verifyParent, getParentChildren);
 router.get("/profile", verifyParent, getParentProfile);
+router.post("/change-password", verifyParent, changePassword);
 
 // All routes require school admin authentication
 router.use(verifySchoolAdmin);

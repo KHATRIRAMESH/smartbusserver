@@ -541,3 +541,46 @@ export const getParentProfile = async (req, res) => {
     });
   }
 };
+
+export const changePassword = async (req, res) => {
+  try {
+    const parentId = req.user.id;
+    const { currentPassword, newPassword } = req.body;
+    const parent = await db
+      .select()
+      .from(parentTable)
+      .where(eq(parentTable.id, parentId))
+      .limit(1);
+    if (parent.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Parent not found",
+      });
+    }
+    const isPasswordValid = await bcrypt.compare(
+      currentPassword,
+      parent[0].password
+    );
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid credentials",
+      });
+    }
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    await db
+      .update(parentTable)
+      .set({ password: hashedPassword })
+      .where(eq(parentTable.id, parentId));
+    res.status(200).json({
+      success: true,
+      message: "Password changed successfully",
+    });
+  } catch (error) {
+    console.error("Error changing password:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+};

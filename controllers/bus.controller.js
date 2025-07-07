@@ -6,6 +6,7 @@ import { routeTable } from "../database/Route.js";
 import { childTable } from "../database/Child.js";
 import { parentTable } from "../database/Parent.js";
 import { StatusCodes } from "http-status-codes";
+import { ForeignKeyError } from "../errors/custom-api.js";
 
 // Create a new bus
 export const createBus = async (req, res) => {
@@ -335,7 +336,7 @@ export const updateBus = async (req, res) => {
 };
 
 // Delete a bus
-export const deleteBus = async (req, res) => {
+export const deleteBus = async (req, res, next) => {
   try {
     const schoolAdminId = req.user.id;
     const { id } = req.params;
@@ -355,25 +356,29 @@ export const deleteBus = async (req, res) => {
     if (existingBus.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Bus not found",
+        error: "Bus not found",
       });
     }
 
-    // Check if bus has assigned children
-    const childrenCount = await db
-      .select({ count: sql`count(*)` })
-      .from(childTable)
-      .where(eq(childTable.busId, id))
-      .limit(1);
+    // First, unassign any children from this bus
+    await db
+      .update(childTable)
+      .set({
+        busId: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(childTable.busId, id));
 
-    if (childrenCount[0].count > 0) {
-      return res.status(400).json({
-        success: false,
-        message: "Cannot delete bus with assigned children. Please reassign children first.",
-      });
-    }
+    // Then, unassign any routes from this bus
+    await db
+      .update(routeTable)
+      .set({
+        busId: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(routeTable.busId, id));
 
-    // Delete the bus
+    // Now delete the bus
     await db
       .delete(busTable)
       .where(
@@ -388,21 +393,7 @@ export const deleteBus = async (req, res) => {
       message: "Bus deleted successfully",
     });
   } catch (error) {
-    console.error("Error deleting bus:", error);
-
-    // Check for foreign key violation (PostgreSQL error code: 23503)
-    if (error.code === "23503") {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Cannot delete this bus because it is still referenced in other records (e.g., routes). Please remove or update related data first.",
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
+    next(error);
   }
 };
 

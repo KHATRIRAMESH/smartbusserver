@@ -1,15 +1,25 @@
 import express from "express";
-import { 
+import {
   createDriver,
   getAllDrivers,
   getDriverById,
   updateDriver,
   deleteDriver,
-  getDriverStats
+  getDriverStats,
+  getDriverProfile,
+  loginDriver,
+  getDriverBus,
 } from "../controllers/driver.controller.js";
 import { verifySchoolAdmin } from "../middleware/auth.js";
-
+import { verifyDriver } from "../middleware/auth.js";
 const router = express.Router();
+
+// Public driver login route
+router.post("/login", loginDriver);
+
+// Driver-specific routes (require driver authentication)
+router.get("/profile", verifyDriver, getDriverProfile);
+router.get("/bus", verifyDriver, getDriverBus);
 
 // All routes require school admin authentication
 router.use(verifySchoolAdmin);
@@ -22,4 +32,4 @@ router.get("/:id", getDriverById);
 router.put("/:id", updateDriver);
 router.delete("/:id", deleteDriver);
 
-export default router; 
+export default router;
