@@ -11,6 +11,10 @@ import { calculateDistance } from "../utils/mapUtils.js";
 export class TrackingService {
   static activeBuses = new Map(); // { busId: { socketId, coords, status, lastUpdate } }
   static busSubscriptions = new Map(); // { busId: Set<socketId> }
+  static lastBroadcastPositions = new Map(); // { busId: { latitude, longitude, timestamp } }
+  
+  // Distance threshold in kilometers (50 meters = 0.05 km)
+  static DISTANCE_THRESHOLD = 0.05;
 
   static async saveLocationHistory(busId, location, status = "online") {
     try {
@@ -144,7 +148,7 @@ export class TrackingService {
     };
   }
 
-  static async updateBusLocation(busId, location, status) {
+  static async updateBusLocation(busId, location, status, forceUpdate = false) {
     const bus = await db
       .select()
       .from(busTable)
@@ -164,7 +168,10 @@ export class TrackingService {
     // Store in memory for real-time access
     this.activeBuses.set(busId, busData);
     
-    // Also save to database for historical analysis
+    // Check if we should broadcast this location update
+    const shouldBroadcast = forceUpdate || this.shouldBroadcastLocation(busId, location);
+    
+    // Always save to database for historical analysis
     try {
       await this.saveLocationHistory(busId, location, status || "online");
     } catch (error) {
@@ -172,7 +179,42 @@ export class TrackingService {
       // Don't fail the update if history saving fails
     }
 
-    return busData;
+    // Update last broadcast position if we're broadcasting
+    if (shouldBroadcast) {
+      this.lastBroadcastPositions.set(busId, {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        timestamp: new Date(),
+      });
+    }
+
+    return {
+      ...busData,
+      shouldBroadcast,
+    };
+  }
+
+  static shouldBroadcastLocation(busId, newLocation) {
+    const lastBroadcast = this.lastBroadcastPositions.get(busId);
+    
+    // If no previous broadcast position, always broadcast
+    if (!lastBroadcast) {
+      return true;
+    }
+
+    // Calculate distance from last broadcast position
+    const distance = calculateDistance(
+      lastBroadcast.latitude,
+      lastBroadcast.longitude,
+      newLocation.latitude,
+      newLocation.longitude
+    );
+
+    // Convert distance from km to meters and check against threshold
+    const distanceInMeters = distance * 1000;
+    console.log(`Bus ${busId} moved ${distanceInMeters.toFixed(2)} meters from last broadcast`);
+    
+    return distanceInMeters >= 50; // 50 meters threshold
   }
 
   static async updateBusStatus(busId, status) {
@@ -195,6 +237,17 @@ export class TrackingService {
     };
 
     this.activeBuses.set(busId, busData);
+    
+    // Save status change to location history for record keeping
+    if (existingData?.coords) {
+      try {
+        await this.saveLocationHistory(busId, existingData.coords, status);
+        console.log(`Status change logged for bus ${busId}: ${status}`);
+      } catch (error) {
+        console.error("Failed to save status change to history:", error);
+      }
+    }
+    
     return busData;
   }
 
@@ -276,5 +329,28 @@ export class TrackingService {
     }));
 
     return distances.sort((a, b) => a.distance - b.distance);
+  }
+
+  static forceLocationBroadcast(busId) {
+    // Reset last broadcast position to force next update to be broadcast
+    this.lastBroadcastPositions.delete(busId);
+    console.log(`Forced location broadcast reset for bus ${busId}`);
+  }
+
+  static getBusStatus(busId) {
+    const busData = this.activeBuses.get(busId);
+    return busData ? busData.status : 'offline';
+  }
+
+  static getAllBusStatuses() {
+    const statuses = {};
+    for (const [busId, busData] of this.activeBuses.entries()) {
+      statuses[busId] = {
+        status: busData.status,
+        lastUpdate: busData.lastUpdate,
+        hasLocation: !!busData.coords,
+      };
+    }
+    return statuses;
   }
 } 

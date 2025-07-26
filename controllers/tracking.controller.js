@@ -58,18 +58,27 @@ export const updateBusLocation = async (req, res) => {
 
   const result = await TrackingService.updateBusLocation(busId, location, status);
   
-  // Notify subscribers through WebSocket
-  const subscribers = TrackingService.getBusSubscribers(busId);
-  if (subscribers.size > 0) {
-    req.io.to(Array.from(subscribers)).emit("busLocationUpdate", {
-      busId,
-      ...result,
-    });
+  // Only notify subscribers through WebSocket if distance threshold is met
+  if (result.shouldBroadcast) {
+    const subscribers = TrackingService.getBusSubscribers(busId);
+    if (subscribers.size > 0) {
+      req.io.to(Array.from(subscribers)).emit("busLocationUpdate", {
+        busId,
+        coords: result.coords,
+        status: result.status,
+        lastUpdate: result.lastUpdate,
+      });
+    }
   }
 
   res.status(StatusCodes.OK).json({
     success: true,
-    data: result,
+    data: {
+      coords: result.coords,
+      status: result.status,
+      lastUpdate: result.lastUpdate,
+      broadcast: result.shouldBroadcast,
+    },
     message: "Bus location updated successfully",
   });
 };

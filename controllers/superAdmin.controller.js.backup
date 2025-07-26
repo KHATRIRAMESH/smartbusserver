@@ -1,16 +1,11 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { eq, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import db from "../config/connect.js";
 import { superAdminTable } from "../database/SuperAdmin.js";
 import { schoolAdminTable } from "../database/SchoolAdmin.js";
 import { StatusCodes } from "http-status-codes";
 import { schoolTable } from "../database/School.js";
-import { busTable } from "../database/Bus.js";
-import { routeTable } from "../database/Route.js";
-import { driverTable } from "../database/Driver.js";
-import { parentTable } from "../database/Parent.js";
-import { childTable } from "../database/Child.js";
 
 export const createSuperAdmin = async (req, res) => {
   const { name, email, password, secretKey } = req.body;
@@ -305,65 +300,24 @@ export const deleteSchool = async (req, res) => {
     });
   }
 };
+
 export const getSystemStats = async (req, res) => {
   try {
     // Get schools count
-    const [schoolStats] = await db
-      .select({
-        totalSchools: sql`count(*)`
-      })
-      .from(schoolTable);
+    const schoolsResult = await db.select().from(schoolTable);
+    const totalSchools = schoolsResult.length;
 
     // Get school admins count
-    const [adminStats] = await db
-      .select({
-        totalSchoolAdmins: sql`count(*)`
-      })
-      .from(schoolAdminTable);
-
-    // Get buses count
-    const [busStats] = await db
-      .select({
-        totalBuses: sql`count(*)`
-      })
-      .from(busTable);
-
-    // Get routes count
-    const [routeStats] = await db
-      .select({
-        totalRoutes: sql`count(*)`
-      })
-      .from(routeTable);
-
-    // Get drivers count
-    const [driverStats] = await db
-      .select({
-        totalDrivers: sql`count(*)`
-      })
-      .from(driverTable);
-
-    // Get children count
-    const [childStats] = await db
-      .select({
-        totalChildren: sql`count(*)`
-      })
-      .from(childTable);
-
-    // Get parents count
-    const [parentStats] = await db
-      .select({
-        totalParents: sql`count(*)`
-      })
-      .from(parentTable);
+    const schoolAdminsResult = await db.select().from(schoolAdminTable);
+    const totalSchoolAdmins = schoolAdminsResult.length;
 
     const stats = {
-      totalSchools: Number(schoolStats.totalSchools) || 0,
-      totalSchoolAdmins: Number(adminStats.totalSchoolAdmins) || 0,
-      totalBuses: Number(busStats.totalBuses) || 0,
-      totalDrivers: Number(driverStats.totalDrivers) || 0,
-      totalRoutes: Number(routeStats.totalRoutes) || 0,
-      totalChildren: Number(childStats.totalChildren) || 0,
-      totalParents: Number(parentStats.totalParents) || 0,
+      totalSchools,
+      totalSchoolAdmins,
+      totalBuses: 0, // Will be implemented when Bus schema is ready
+      totalRoutes: 0, // Will be implemented when Route schema is ready
+      totalChildren: 0, // Will be implemented when Child schema is ready
+      totalParents: 0, // Will be implemented when Parent schema is ready
     };
 
     res.status(200).json({

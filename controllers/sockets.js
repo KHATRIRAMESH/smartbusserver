@@ -84,29 +84,58 @@ const handleSocketConnection = (io) => {
       console.log(`Socket ${socket.id} unsubscribed from bus ${busId}`);
     });
 
-    socket.on("startBusService", (data) => {
+    socket.on("startBusService", async (data) => {
       const { busId, coords, status } = data;
       console.log(`Bus service started for bus ${busId} with status: ${status}`);
       
       if (socket.user.role === "driver") {
-        // Update driver's bus assignment
-        const driverInfo = driverSockets.get(socket.user.id);
-        if (driverInfo) {
-          driverInfo.busId = busId;
-          driverSockets.set(socket.user.id, driverInfo);
-        }
-        
-        // Broadcast to subscribers that bus is now online
-        const subscribers = TrackingService.getBusSubscribers(busId);
-        if (subscribers.size > 0) {
-          const broadcastData = {
-            busId,
-            coords,
-            status,
-            lastUpdated: new Date(),
+        try {
+          // Update driver's bus assignment
+          const driverInfo = driverSockets.get(socket.user.id);
+          if (driverInfo) {
+            driverInfo.busId = busId;
+            driverSockets.set(socket.user.id, driverInfo);
+          }
+          
+          // Update bus location and status with force broadcast
+          const location = {
+            latitude: parseFloat(coords.latitude),
+            longitude: parseFloat(coords.longitude),
+            speed: coords.speed ? parseFloat(coords.speed) : null,
+            heading: coords.heading ? parseFloat(coords.heading) : null,
           };
-          console.log(`Broadcasting bus service start to ${subscribers.size} subscribers`);
-          io.to(Array.from(subscribers)).emit("busLocationUpdate", broadcastData);
+          
+          const result = await TrackingService.updateBusLocation(busId, location, status, true); // Force broadcast
+          
+          // Broadcast to subscribers that bus is now online
+          const subscribers = TrackingService.getBusSubscribers(busId);
+          if (subscribers.size > 0) {
+            const broadcastData = {
+              busId,
+              coords: result.coords,
+              status: result.status,
+              lastUpdate: result.lastUpdate,
+            };
+            console.log(`Broadcasting bus service start to ${subscribers.size} subscribers`);
+            io.to(Array.from(subscribers)).emit("busLocationUpdate", broadcastData);
+            
+            // Also send dedicated status update
+            io.to(Array.from(subscribers)).emit("busStatusUpdate", {
+              busId,
+              status: result.status,
+              lastUpdate: result.lastUpdate,
+            });
+          }
+
+          // Acknowledge to driver
+          socket.emit("serviceStartAck", {
+            busId,
+            status: result.status,
+            success: true,
+          });
+        } catch (error) {
+          console.error("Error starting bus service:", error);
+          socket.emit("error", { message: error.message });
         }
       }
     });
@@ -122,20 +151,35 @@ const handleSocketConnection = (io) => {
       }
 
       try {
-        // Update status in database
-        await TrackingService.updateBusStatus(busId, status);
+        // Update status in tracking service
+        const result = await TrackingService.updateBusStatus(busId, status);
         
-        // Broadcast status update to subscribers
+        // Always broadcast status updates to subscribers (status changes are critical)
         const subscribers = TrackingService.getBusSubscribers(busId);
         if (subscribers.size > 0) {
           const broadcastData = {
             busId,
-            status,
-            lastUpdated: new Date(),
+            coords: result.coords,
+            status: result.status,
+            lastUpdate: result.lastUpdate,
           };
-          console.log(`Broadcasting status update to ${subscribers.size} subscribers for bus ${busId}`);
-          io.to(Array.from(subscribers)).emit("busStatusUpdate", broadcastData);
+          console.log(`Broadcasting status update to ${subscribers.size} subscribers for bus ${busId}: ${status}`);
+          io.to(Array.from(subscribers)).emit("busLocationUpdate", broadcastData);
+          
+          // Also send dedicated status update event
+          io.to(Array.from(subscribers)).emit("busStatusUpdate", {
+            busId,
+            status: result.status,
+            lastUpdate: result.lastUpdate,
+          });
         }
+
+        // Acknowledge to driver
+        socket.emit("statusUpdateAck", {
+          busId,
+          status: result.status,
+          success: true,
+        });
       } catch (error) {
         console.error("Error updating bus status:", error);
         socket.emit("error", { message: error.message });
@@ -164,27 +208,39 @@ const handleSocketConnection = (io) => {
         const result = await TrackingService.updateBusLocation(busId, location, status);
         console.log(`Updated bus location result:`, result);
         
-        // Notify subscribers
-        const subscribers = TrackingService.getBusSubscribers(busId);
-        console.log(`Broadcasting location to ${subscribers.size} subscribers for bus ${busId}`);
-        console.log(`Subscriber socket IDs:`, Array.from(subscribers));
-        
-        if (subscribers.size > 0) {
-          const broadcastData = {
-            busId,
-            ...result,
-          };
-          console.log(`Broadcasting data:`, broadcastData);
-          io.to(Array.from(subscribers)).emit("busLocationUpdate", broadcastData);
-          console.log(`Broadcast sent to subscribers`);
+        // Only broadcast if location change meets distance threshold
+        if (result.shouldBroadcast) {
+          const subscribers = TrackingService.getBusSubscribers(busId);
+          console.log(`Broadcasting location to ${subscribers.size} subscribers for bus ${busId} (distance threshold met)`);
+          
+          if (subscribers.size > 0) {
+            const broadcastData = {
+              busId,
+              coords: result.coords,
+              status: result.status,
+              lastUpdate: result.lastUpdate,
+            };
+            console.log(`Broadcasting data:`, broadcastData);
+            io.to(Array.from(subscribers)).emit("busLocationUpdate", broadcastData);
+            console.log(`Broadcast sent to subscribers`);
+          }
+        } else {
+          console.log(`Location update for bus ${busId} not broadcast - distance threshold not met`);
         }
+
+        // Always acknowledge the update to the driver
+        socket.emit("locationUpdateAck", {
+          busId,
+          success: true,
+          broadcast: result.shouldBroadcast,
+        });
       } catch (error) {
         console.error("Error updating bus location:", error);
         socket.emit("error", { message: error.message });
       }
     });
 
-    socket.on("disconnect", () => {
+    socket.on("disconnect", async () => {
       console.log(`Socket disconnected: ${socket.id}`);
       
       // Handle driver disconnection
@@ -194,21 +250,29 @@ const handleSocketConnection = (io) => {
           const busId = driverInfo.busId;
           console.log(`Driver ${socket.user.id} disconnected, setting bus ${busId} to offline`);
           
-          // Broadcast offline status to subscribers
-          const subscribers = TrackingService.getBusSubscribers(busId);
-          if (subscribers.size > 0) {
-            const broadcastData = {
-              busId,
-              status: 'offline',
-              lastUpdated: new Date(),
-            };
-            console.log(`Broadcasting offline status to ${subscribers.size} subscribers for bus ${busId}`);
-            io.to(Array.from(subscribers)).emit("busStatusUpdate", broadcastData);
-          }
-          
-          // Update status in database
           try {
-            TrackingService.updateBusStatus(busId, 'offline');
+            // Update status in tracking service
+            const result = await TrackingService.updateBusStatus(busId, 'offline');
+            
+            // Broadcast offline status to subscribers
+            const subscribers = TrackingService.getBusSubscribers(busId);
+            if (subscribers.size > 0) {
+              const broadcastData = {
+                busId,
+                coords: result.coords,
+                status: result.status,
+                lastUpdate: result.lastUpdate,
+              };
+              console.log(`Broadcasting offline status to ${subscribers.size} subscribers for bus ${busId}`);
+              io.to(Array.from(subscribers)).emit("busLocationUpdate", broadcastData);
+              
+              // Also send dedicated status update
+              io.to(Array.from(subscribers)).emit("busStatusUpdate", {
+                busId,
+                status: result.status,
+                lastUpdate: result.lastUpdate,
+              });
+            }
           } catch (error) {
             console.error("Error updating bus status to offline:", error);
           }
