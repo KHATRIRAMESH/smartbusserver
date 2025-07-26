@@ -121,3 +121,17 @@ export const routeTable = pgTable("route", {
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// ========== BUS LOCATION HISTORY TABLE ==========
+export const busLocationHistoryTable = pgTable("bus_location_history", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  busId: uuid("bus_id").notNull().references(() => busTable.id),
+  latitude: text("latitude").notNull(),
+  longitude: text("longitude").notNull(),
+  speed: text("speed"),
+  heading: text("heading"),
+  accuracy: text("accuracy"),
+  status: text("status").default("online"),
+  timestamp: timestamp("timestamp").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});

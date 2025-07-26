@@ -1,15 +1,97 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import db from "../config/connect.js";
 import { busTable } from "../database/Bus.js";
 import { childTable } from "../database/Child.js";
 import { driverTable } from "../database/Driver.js";
 import { routeTable } from "../database/Route.js";
+import { busLocationHistoryTable } from "../database/BusLocationHistory.js";
 import { BadRequestError } from "../errors/index.js";
 import { calculateDistance } from "../utils/mapUtils.js";
 
 export class TrackingService {
   static activeBuses = new Map(); // { busId: { socketId, coords, status, lastUpdate } }
   static busSubscriptions = new Map(); // { busId: Set<socketId> }
+
+  static async saveLocationHistory(busId, location, status = "online") {
+    try {
+      const locationHistory = await db
+        .insert(busLocationHistoryTable)
+        .values({
+          busId,
+          latitude: location.latitude.toString(),
+          longitude: location.longitude.toString(),
+          speed: location.speed ? location.speed.toString() : null,
+          heading: location.heading ? location.heading.toString() : null,
+          accuracy: location.accuracy ? location.accuracy.toString() : null,
+          status,
+          timestamp: new Date(),
+        })
+        .returning();
+      
+      console.log(`Location history saved for bus ${busId}:`, locationHistory[0]);
+      return locationHistory[0];
+    } catch (error) {
+      console.error("Error saving location history:", error);
+      throw error;
+    }
+  }
+
+  static async getLastKnownLocation(busId) {
+    try {
+      const lastLocation = await db
+        .select()
+        .from(busLocationHistoryTable)
+        .where(eq(busLocationHistoryTable.busId, busId))
+        .orderBy(desc(busLocationHistoryTable.timestamp))
+        .limit(1);
+
+      if (lastLocation && lastLocation.length > 0) {
+        const location = lastLocation[0];
+        return {
+          coords: {
+            latitude: parseFloat(location.latitude),
+            longitude: parseFloat(location.longitude),
+            speed: location.speed ? parseFloat(location.speed) : null,
+            heading: location.heading ? parseFloat(location.heading) : null,
+            accuracy: location.accuracy ? parseFloat(location.accuracy) : null,
+          },
+          status: location.status,
+          lastUpdate: location.timestamp,
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error("Error retrieving last known location:", error);
+      throw error;
+    }
+  }
+
+  static async getLocationHistory(busId, limit = 100) {
+    try {
+      const history = await db
+        .select()
+        .from(busLocationHistoryTable)
+        .where(eq(busLocationHistoryTable.busId, busId))
+        .orderBy(desc(busLocationHistoryTable.timestamp))
+        .limit(limit);
+
+      return history.map(location => ({
+        id: location.id,
+        coords: {
+          latitude: parseFloat(location.latitude),
+          longitude: parseFloat(location.longitude),
+          speed: location.speed ? parseFloat(location.speed) : null,
+          heading: location.heading ? parseFloat(location.heading) : null,
+          accuracy: location.accuracy ? parseFloat(location.accuracy) : null,
+        },
+        status: location.status,
+        timestamp: location.timestamp,
+      }));
+    } catch (error) {
+      console.error("Error retrieving location history:", error);
+      throw error;
+    }
+  }
 
   static async getBusLocationForChild(childId) {
     const child = await db
@@ -43,7 +125,19 @@ export class TrackingService {
       throw new BadRequestError("Child not found or not assigned to a bus");
     }
 
-    const busLocation = this.activeBuses.get(child[0].busId);
+    // Check for current active location first
+    let busLocation = this.activeBuses.get(child[0].busId);
+    
+    // If no active location, get last known location from database
+    if (!busLocation) {
+      try {
+        busLocation = await this.getLastKnownLocation(child[0].busId);
+        console.log(`Retrieved last known location for bus ${child[0].busId}:`, busLocation);
+      } catch (error) {
+        console.error("Error retrieving last known location:", error);
+      }
+    }
+
     return {
       ...child[0],
       location: busLocation || null,
@@ -67,7 +161,17 @@ export class TrackingService {
       lastUpdate: new Date(),
     };
 
+    // Store in memory for real-time access
     this.activeBuses.set(busId, busData);
+    
+    // Also save to database for historical analysis
+    try {
+      await this.saveLocationHistory(busId, location, status || "online");
+    } catch (error) {
+      console.error("Failed to save location history:", error);
+      // Don't fail the update if history saving fails
+    }
+
     return busData;
   }
 

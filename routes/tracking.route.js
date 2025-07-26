@@ -5,9 +5,11 @@ import {
   getAllBusLocations,
   updateBusLocation,
   getTrackingStats,
-  getBusLocationForParentChildren
+  getBusLocationForParentChildren,
+  getLastKnownBusLocation,
+  getBusLocationHistory
 } from "../controllers/tracking.controller.js";
-import { verifySchoolAdmin, verifyParent } from "../middleware/auth.js";
+import { verifySchoolAdmin, verifyParent, authenticate } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -23,5 +25,9 @@ router.get("/admin/stats", verifySchoolAdmin, getTrackingStats);
 
 // Parent bus tracking route
 router.get("/parent-children", verifyParent, getBusLocationForParentChildren);
+
+// Last known location and history routes
+router.get("/bus/:busId/last-location", authenticate, getLastKnownBusLocation);
+router.get("/bus/:busId/history", authenticate, getBusLocationHistory);
 
 export default router; 

@@ -43,7 +43,7 @@ const handleSocketConnection = (io) => {
       socket.emit("pong", { message: "pong", timestamp: new Date(), originalData: data });
     });
 
-    socket.on("subscribeToBus", (data) => {
+    socket.on("subscribeToBus", async (data) => {
       const { busId } = data;
       console.log(`Parent ${socket.user.id} subscribing to bus ${busId}`);
       console.log(`Socket ${socket.id} user role: ${socket.user.role}`);
@@ -51,6 +51,29 @@ const handleSocketConnection = (io) => {
       socket.join(busId);
       console.log(`Socket ${socket.id} subscribed to bus ${busId}`);
       console.log(`Total subscribers for bus ${busId}:`, TrackingService.getBusSubscribers(busId).size);
+      
+      // Send last known location immediately if available
+      try {
+        let lastLocation = TrackingService.activeBuses.get(busId);
+        if (!lastLocation) {
+          lastLocation = await TrackingService.getLastKnownLocation(busId);
+          if (lastLocation) {
+            console.log(`Sending last known location to new subscriber for bus ${busId}`);
+            socket.emit("busLocationUpdate", {
+              busId,
+              ...lastLocation,
+            });
+          }
+        } else {
+          console.log(`Sending current active location to new subscriber for bus ${busId}`);
+          socket.emit("busLocationUpdate", {
+            busId,
+            ...lastLocation,
+          });
+        }
+      } catch (error) {
+        console.error("Error retrieving last known location for new subscriber:", error);
+      }
     });
 
     socket.on("unsubscribeFromBus", (data) => {
